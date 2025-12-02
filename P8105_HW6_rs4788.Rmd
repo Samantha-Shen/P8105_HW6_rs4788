@@ -6,6 +6,9 @@ output: github_document
 
 ```{r, include = FALSE, message = FALSE, warning = FALSE}
 library(tidyverse)
+library(broom)
+library(forcats)
+library(purrr)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -25,3 +28,112 @@ options(
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
+
+# Problem 1
+
+### Create variable & tidy data:
+```{r}
+homicide_df = 
+  read_csv("data/homicide-data.csv") %>% 
+  mutate(
+    city_state = str_c(city, ", ", state),
+    resolved = disposition != "Open/No arrest",
+    victim_age = as.numeric(victim_age)
+  ) %>% 
+  filter(
+    !city_state %in% c("Dallas, TX", "Phoenix, AZ", 
+                       "Kansas City, MO", "Tulsa, AL"),
+    victim_race %in% c("White", "Black")
+  )
+```
+
+
+### Try to  fit a logistic regression for Baltimore:
+```{r}
+baltimore_df = 
+  homicide_df %>% 
+  filter(city_state == "Baltimore, MD") %>% 
+  mutate(
+    victim_sex  = fct_relevel(victim_sex, "Female"),
+    victim_race = fct_relevel(victim_race, "White")
+  )
+
+baltimore_fit = 
+  baltimore_df %>% 
+  glm(
+    resolved ~ victim_age + victim_sex + victim_race,
+    data   = .,
+    family = binomial()
+  )
+
+baltimore_or =
+  baltimore_fit %>% 
+  tidy(conf.int = TRUE, exponentiate = TRUE) %>% 
+  filter(term == "victim_sexMale") %>% 
+  select(term, estimate, conf.low, conf.high)
+
+baltimore_or
+```
+
+
+### Apply the model to other cities:
+```{r}
+model_df = 
+  homicide_df %>% 
+  mutate(
+    victim_sex  = fct_relevel(victim_sex, "Female"),
+    victim_race = fct_relevel(victim_race, "White")
+  )
+
+city_or_df = 
+  model_df %>% 
+  nest(data = -city_state) %>% 
+  mutate(
+    fit = map(
+      data,
+      ~ glm(
+          resolved ~ victim_age + victim_sex + victim_race,
+          data   = .x,
+          family = binomial()
+        )
+    ),
+    tidy_res = map(
+      fit,
+      ~ tidy(.x, conf.int = TRUE, exponentiate = TRUE)
+    )
+  ) %>% 
+  select(city_state, tidy_res) %>% 
+  unnest(tidy_res) %>% 
+  filter(term == "victim_sexMale") %>% 
+  mutate(
+    city_state = fct_reorder(city_state, estimate)
+  )
+
+city_or_df %>% head()
+```
+
+
+### Creat a plot:
+```{r}
+city_or_plot = 
+  city_or_df %>% 
+  mutate(
+    city_state = fct_reorder(city_state, estimate)
+  ) %>% 
+  ggplot(aes(x = estimate, y = city_state)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(
+    title = "Odds Ratios for Homicide Resolution by City",
+    x = "Adjusted odds ratio (male vs female)",
+    y = NULL
+  )
+
+city_or_plot
+```
+
+Across all cities, only Fresno, Minneapolis, and Stockton had OR estimates exceeding 1. The point estimates for all other cities were below 1, and over half of the cities had confidence intervals entirely on the left side of 1. This indicates that, controlling for age and race, homicides with male victims generally tend to be less likely to be resolved than homicides with female victims.
+
+
+
