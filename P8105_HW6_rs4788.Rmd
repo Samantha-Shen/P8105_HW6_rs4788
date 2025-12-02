@@ -247,3 +247,8 @@ boot_ci =
 
 boot_ci
 ```
+
+Based on the 5000 bootstrap estimates, the 95% confidence interval for $r^2$ is 
+[`r round(boot_ci$r2_low, 3)`, `r round(boot_ci$r2_high, 3)`], 
+and the 95% confidence interval for $\hat{\beta}_1 / \hat{\beta}_2$ is 
+[`r round(boot_ci$ratio_low, 0)`, `r round(boot_ci$ratio_high, 0)`].
