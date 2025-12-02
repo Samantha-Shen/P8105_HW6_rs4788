@@ -114,7 +114,7 @@ city_or_df %>% head()
 
 
 ### Creat a plot:
-```{r, fig.height = 10, fig.width = 7, out.width = "100%"}
+```{r, fig.height = 14, fig.width = 7, out.width = "100%"}
 city_or_plot = 
   city_or_df %>% 
   mutate(
@@ -128,6 +128,9 @@ city_or_plot =
     title = "Odds Ratios for Homicide Resolution by City",
     x = "Adjusted odds ratio (male vs female)",
     y = NULL
+  ) +
+  theme(
+    axis.text.y = element_text(size = 6),
   )
 
 city_or_plot
