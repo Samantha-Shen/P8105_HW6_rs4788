@@ -4,11 +4,12 @@ output: github_document
 ---
 
 
-```{r, include = FALSE, message = FALSE, warning = FALSE}
+```{r, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(broom)
 library(forcats)
 library(purrr)
+library(modelr)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -29,7 +30,7 @@ scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
 
-# Problem 1
+## Problem 1
 
 ### Create variable & tidy data:
 ```{r}
@@ -139,4 +140,110 @@ city_or_plot
 Across all cities, only Fresno, Minneapolis, and Stockton had OR estimates exceeding 1. The point estimates for all other cities were below 1, and over half of the cities had confidence intervals entirely on the left side of 1. This indicates that, controlling for age and race, homicides with male victims generally tend to be less likely to be resolved than homicides with female victims.
 
 
+## Problem 2
+```{r}
+library(p8105.datasets)
+data("weather_df")
+```
 
+### Estimates of two quantities:
+```{r}
+weather_df_clean = 
+  weather_df %>% 
+  drop_na(tmax, tmin, prcp)
+
+weather_fit = 
+  weather_df_clean %>% 
+  lm(tmax ~ tmin + prcp, data = .)
+
+weather_fit %>% 
+  glance() %>% 
+  select(r.squared)
+
+beta_ratio =
+  weather_fit %>% 
+  tidy() %>% 
+  filter(term %in% c("tmin", "prcp")) %>% 
+  select(term, estimate) %>% 
+  pivot_wider(names_from = term, values_from = estimate) %>% 
+  mutate(beta_ratio = tmin / prcp) %>% 
+  pull(beta_ratio)
+
+beta_ratio
+
+set.seed(8105)
+
+boot_results = 
+  weather_df_clean %>% 
+  modelr::bootstrap(n = 5000) %>%
+  mutate(
+    df   = map(strap, as_tibble),
+    fit  = map(df, ~ lm(tmax ~ tmin + prcp, data = .x)),
+    gln  = map(fit, glance),
+    tdy  = map(fit, tidy),
+    r_squared = map_dbl(gln, "r.squared"),
+    beta_ratio = map_dbl(
+      tdy,
+      ~ .x %>% 
+        filter(term %in% c("tmin", "prcp")) %>% 
+        select(term, estimate) %>% 
+        pivot_wider(names_from = term, values_from = estimate) %>% 
+        summarise(beta_ratio = tmin / prcp) %>% 
+        pull(beta_ratio)
+    )
+  ) %>% 
+  select(.id, r_squared, beta_ratio)
+```
+
+### Plot distribution:
+```{r}
+boot_long = 
+  boot_results %>% 
+  pivot_longer(
+    cols = c(r_squared, beta_ratio),
+    names_to = "parameter",
+    values_to = "estimate"
+  ) %>% 
+  mutate(
+    parameter = recode(
+      parameter,
+      r_squared  = "r^2",
+      beta_ratio = "hat(beta)[1] / hat(beta)[2]"
+    ),
+    parameter = factor(
+      parameter,
+      levels = c("r^2", "hat(beta)[1] / hat(beta)[2]")
+    )
+  )
+
+boot_long %>% 
+  ggplot(aes(x = estimate)) +
+  geom_density() +
+  facet_wrap(~ parameter, 
+             scales = "free",
+             labeller = label_parsed) +
+  labs(
+    title = expression(
+      paste("Bootstrap distributions of ", r^2, " and ", hat(beta)[1] / hat(beta)[2])
+    ),
+    x = "Bootstrap estimates",
+    y = "Density"
+  )
+```
+
+The bootstrap distribution of $r^2$ is unimodal and approximately symmetric, concentrated in a narrow range around 0.94. This suggests that the proportion of variation in $tmax$ explained by the model is fairly stable across resamples and is estimated with high precision. In contrast, the bootstrap distribution of $\hat{\beta}_1 / \hat{\beta}_2$ is much more spread out and somewhat skewed toward large negative values. This indicates substantial uncertainty in the ratio of the coefficients for $tmin$ and $prcp$, meaning that the relative importance of these two predictors is estimated much less precisely than the overall model fit.
+
+
+### 95% CI interval:
+```{r}
+boot_ci = 
+  boot_results %>% 
+  summarise(
+    r2_low     = quantile(r_squared, 0.025),
+    r2_high    = quantile(r_squared, 0.975),
+    ratio_low  = quantile(beta_ratio, 0.025),
+    ratio_high = quantile(beta_ratio, 0.975)
+  )
+
+boot_ci
+```
